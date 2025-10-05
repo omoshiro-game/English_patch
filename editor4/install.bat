@@ -1,0 +1,1 @@
+pyinstaller --onefile --console  --name HookTranslator --collect-binaries frida --icon test.ico --collect-data frida main.py
