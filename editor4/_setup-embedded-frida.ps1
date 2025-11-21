@@ -103,17 +103,18 @@ if ($NeedPythonSetup) {
 
     Write-Host "==> Installing pip with embedded Python"
     & $PythonExe $GetPip
-
-    # --- Upgrade pip (optional but recommended) ---
-    Write-Host "==> Upgrading pip"
-    & $PythonExe -m pip install --upgrade pip
-
-    # --- Install Frida + tools into local site-packages ---
-    Write-Host "==> Installing frida and frida-tools"
-    & $PythonExe -m pip install --no-warn-script-location frida frida-tools
 } else {
     Write-Host "==> Skipping Python creation; using existing portable Python in $PyDir"
 }
+
+
+# --- Upgrade pip (optional but recommended) ---
+Write-Host "==> Upgrading pip"
+& $PythonExe -m pip install --upgrade pip
+
+# --- Install Frida + tools into local site-packages ---
+Write-Host "==> Installing frida and frida-tools"
+& $PythonExe -m pip install --no-warn-script-location frida frida-tools
 
 # --- Fetch agent.js and main.py (always do, to ensure latest) ---
 function Download-With-Fallback($primary, $fallback, $dest) {
