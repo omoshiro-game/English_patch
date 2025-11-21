@@ -12,7 +12,7 @@ $ZipUrl     = "$BaseUrl/$ZipName"
 $Root       = (Get-Location).Path
 $PyDir      = Join-Path $Root 'python'
 $PythonExe  = Join-Path $PyDir 'python.exe'
-$GetPipUrl  = 'https://bootstrap.pypa.io/pip/3.8/get-pip.py'  # Python 3.8–specific bootstrapper
+$GetPipUrl  = 'https://bootstrap.pypa.io/pip/3.8/get-pip.py'
 $GetPip     = Join-Path $PyDir 'get-pip.py'
 
 # Your sources
@@ -24,80 +24,112 @@ $MainUrlFallback   = 'https://raw.githubusercontent.com/omoshiro-game/English_pa
 $AgentLocal = Join-Path $Root 'agent.js'
 $MainLocal  = Join-Path $Root 'main.py'
 
-Write-Host "==> Creating portable Python in $PyDir"
+$ForceReinstall = $false
 
-# --- Prep dirs ---
-New-Item -Type Directory -Force -Path $PyDir | Out-Null
-
-# --- Download embeddable ZIP ---
-$zipPath = Join-Path $Root $ZipName
-if (-not (Test-Path $zipPath)) {
-  Write-Host "==> Downloading $ZipUrl"
-  Invoke-WebRequest -Uri $ZipUrl -OutFile $zipPath
-} else {
-  Write-Host "==> Using existing $zipPath"
-}
-
-# --- Extract ZIP ---
-Write-Host "==> Extracting $ZipName"
-Expand-Archive -Path $zipPath -DestinationPath $PyDir -Force
-
-# --- Ensure Lib and site-packages exist ---
-$LibDir = Join-Path $PyDir 'Lib'
-$SitePk = Join-Path $LibDir 'site-packages'
-New-Item -Type Directory -Force -Path $LibDir, $SitePk | Out-Null
-
-# --- Enable site + add search paths in python38._pth ---
-$pth = Get-ChildItem -Path $PyDir -Filter 'python38._pth' | Select-Object -First 1
-if (-not $pth) {
-  throw "Could not find python38._pth in $PyDir"
-}
-$pthPath = $pth.FullName
-
-# Read existing lines as an array (one line per element)
-$pthLines = @()
-if (Test-Path $pthPath) {
-    $pthLines = Get-Content -Path $pthPath -Encoding UTF8
-}
-
-# Ensure these entries exist (order not enforced; we just add missing ones)
-$need = @(
-    'python38.zip',
-    '.\Lib',
-    '.\Lib\site-packages',
-    'import site'
-)
-
-foreach ($line in $need) {
-    if ($pthLines -notcontains $line) {
-        Add-Content -Path $pthPath -Encoding UTF8 -Value $line
+# --- Detect existing Python ---
+$NeedPythonSetup = $true
+if (-not $ForceReinstall -and (Test-Path $PythonExe)) {
+    try {
+        # Capture stdout AND stderr (python -V writes to stderr!)
+        $pyVersionOutput = & $PythonExe -V 2>&1 | Out-String
+        if ($pyVersionOutput -match 'Python\s+3\.8\.10') {
+            Write-Host "==> Existing Python found: $pyVersionOutput (reusing)" -ForegroundColor Green
+            $NeedPythonSetup = $false
+        } else {
+            Write-Host "==> Existing Python version is '$pyVersionOutput', expected 3.8.10 – will reinstall." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Warning "Failed to query existing Python version: $_ – will reinstall."
     }
 }
-Write-Host "==> Patched $(Split-Path -Leaf $pthPath) for site + paths" -ForegroundColor Green
 
-# --- Bootstrap pip (3.8-compatible script) ---
-Write-Host "==> Downloading get-pip.py for Python 3.8"
-Invoke-WebRequest -Uri $GetPipUrl -OutFile $GetPip
+if ($NeedPythonSetup) {
+    Write-Host "==> Creating portable Python in $PyDir"
 
-Write-Host "==> Installing pip with embedded Python"
-& $PythonExe $GetPip
+    # --- Prep dirs ---
+    if (Test-Path $PyDir) {
+        Write-Host "==> Removing existing $PyDir"
+        Remove-Item -Recurse -Force $PyDir
+    }
+    New-Item -Type Directory -Force -Path $PyDir | Out-Null
 
-# --- Upgrade pip (optional but recommended) ---
-Write-Host "==> Upgrading pip"
-& $PythonExe -m pip install --upgrade pip
+    # --- Download embeddable ZIP ---
+    $zipPath = Join-Path $Root $ZipName
+    if (-not (Test-Path $zipPath)) {
+        Write-Host "==> Downloading $ZipUrl"
+        Invoke-WebRequest -Uri $ZipUrl -OutFile $zipPath
+    } else {
+        Write-Host "==> Using existing $zipPath"
+    }
 
-# --- Install Frida + tools into local site-packages ---
-Write-Host "==> Installing frida and frida-tools"
-& $PythonExe -m pip install --no-warn-script-location frida frida-tools
+    # --- Extract ZIP ---
+    Write-Host "==> Extracting $ZipName"
+    Expand-Archive -Path $zipPath -DestinationPath $PyDir -Force
 
-# --- Fetch agent.js and main.py ---
+    # --- Ensure Lib and site-packages exist ---
+    $LibDir = Join-Path $PyDir 'Lib'
+    $SitePk = Join-Path $LibDir 'site-packages'
+    New-Item -Type Directory -Force -Path $LibDir, $SitePk | Out-Null
+
+    # --- Enable site + add search paths in python38._pth ---
+    $pth = Get-ChildItem -Path $PyDir -Filter 'python38._pth' | Select-Object -First 1
+    if (-not $pth) {
+        throw "Could not find python38._pth in $PyDir"
+    }
+    $pthPath = $pth.FullName
+
+    $pthLines = @()
+    if (Test-Path $pthPath) {
+        $pthLines = Get-Content -Path $pthPath -Encoding UTF8
+    }
+
+    $need = @(
+        'python38.zip',
+        '.\Lib',
+        '.\Lib\site-packages',
+        'import site'
+    )
+
+    foreach ($line in $need) {
+        if ($pthLines -notcontains $line) {
+            Add-Content -Path $pthPath -Encoding UTF8 -Value $line
+        }
+    }
+    Write-Host "==> Patched $(Split-Path -Leaf $pthPath) for site + paths" -ForegroundColor Green
+
+    # --- Bootstrap pip (3.8-compatible script) ---
+    Write-Host "==> Downloading get-pip.py for Python 3.8"
+    Invoke-WebRequest -Uri $GetPipUrl -OutFile $GetPip
+
+    Write-Host "==> Installing pip with embedded Python"
+    & $PythonExe $GetPip
+
+    # --- Upgrade pip (optional but recommended) ---
+    Write-Host "==> Upgrading pip"
+    & $PythonExe -m pip install --upgrade pip
+
+    # --- Install Frida + tools into local site-packages ---
+    Write-Host "==> Installing frida and frida-tools"
+    & $PythonExe -m pip install --no-warn-script-location frida frida-tools
+} else {
+    Write-Host "==> Skipping Python creation; using existing portable Python in $PyDir"
+}
+
+# --- Fetch agent.js and main.py (always do, to ensure latest) ---
 function Download-With-Fallback($primary, $fallback, $dest) {
-  try {
-    Invoke-WebRequest -Uri $primary -OutFile $dest -UseBasicParsing
-  } catch {
-    Write-Warning "Primary failed for $dest, trying fallback..."
-    Invoke-WebRequest -Uri $fallback -OutFile $dest -UseBasicParsing
-  }
+    try {
+        Write-Verbose "Trying primary: $primary"
+        Invoke-WebRequest -Uri $primary -OutFile $dest -UseBasicParsing
+        Write-Host "✓ Downloaded from primary source"
+    } catch {
+        Write-Warning "Primary failed for $dest, trying fallback..."
+        try {
+            Invoke-WebRequest -Uri $fallback -OutFile $dest -UseBasicParsing
+            Write-Host "✓ Downloaded from fallback source"
+        } catch {
+            throw "Failed to download $dest from both sources: $_"
+        }
+    }
 }
 
 Write-Host "==> Downloading agent.js"
