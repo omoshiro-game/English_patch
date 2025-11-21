@@ -15,6 +15,11 @@ $PythonExe  = Join-Path $PyDir 'python.exe'
 $GetPipUrl  = 'https://bootstrap.pypa.io/pip/3.8/get-pip.py'
 $GetPip     = Join-Path $PyDir 'get-pip.py'
 
+# Editor config
+$EditorUrl        = 'https://github.com/omoshiro-game/English_patch/releases/download/0.0.1/Editor_v1020.exe'
+$EditorLocal      = Join-Path $Root 'Editor_v1020.exe'
+$ExpectedSha256   = '7eeae60d7e91a45bf74e7eacc87ea70dc6b164430aff6b2f293117c8ef47fc8b'.ToLower()
+
 # Your sources
 $AgentUrlPrimary   = 'https://raw.githubusercontent.com/omoshiro-game/English_patch/refs/heads/main/editor4/agent.js'
 $AgentUrlFallback  = 'https://raw.githubusercontent.com/omoshiro-game/English_patch/main/editor4/agent.js'
@@ -25,6 +30,55 @@ $AgentLocal = Join-Path $Root 'agent.js'
 $MainLocal  = Join-Path $Root 'main.py'
 
 $ForceReinstall = $false
+
+function Get-FileHash256 {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return $null }
+    try {
+        $hash = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
+        return $hash
+    } catch {
+        Write-Warning "Failed to compute hash for ${Path}: $_"
+        return $null
+    }
+}
+
+# --- Download & verify Editor_v1020.exe ---
+Write-Host "==> Checking Editor_v1020.exe"
+$editorHash = Get-FileHash256 $EditorLocal
+
+if ($editorHash -eq $ExpectedSha256) {
+    Write-Host "Editor_v1020.exe found and verified (SHA-256 OK)" -ForegroundColor Green
+} else {
+    if (Test-Path $EditorLocal) {
+        if ($editorHash) {
+            Write-Host "Editor_v1020.exe exists but hash mismatch:" -ForegroundColor Yellow
+            Write-Host "   Expected: $ExpectedSha256"
+            Write-Host "   Got:      $editorHash"
+        } else {
+            Write-Host "Editor_v1020.exe exists but hash could not be read." -ForegroundColor Yellow
+        }
+        Write-Host "==> Re-downloading..."
+        Remove-Item -Force $EditorLocal
+    }
+
+    Write-Host "==> Downloading Editor_v1020.exe from $EditorUrl"
+    try {
+        $ProgressPreference = 'SilentlyContinue'  # Faster downloads
+        Invoke-WebRequest -Uri $EditorUrl -OutFile $EditorLocal -UseBasicParsing
+        $ProgressPreference = 'Continue'
+    } catch {
+        throw "Failed to download Editor_v1020.exe: $_"
+    }
+
+    # Verify after download
+    $newHash = Get-FileHash256 $EditorLocal
+    if ($newHash -ne $ExpectedSha256) {
+        Remove-Item -Force $EditorLocal -ErrorAction Ignore
+        throw "Hash verification failed after download!`nExpected: $ExpectedSha256`nGot:      $newHash"
+    }
+    Write-Host "Editor_v1020.exe downloaded and verified" -ForegroundColor Green
+}
 
 # --- Detect existing Python ---
 $NeedPythonSetup = $true
